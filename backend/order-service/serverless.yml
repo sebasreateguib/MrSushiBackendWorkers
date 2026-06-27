@@ -1,0 +1,38 @@
+org: mrsushi
+app: mrsushi-app
+service: order-service
+
+provider:
+  name: aws
+  runtime: python3.11
+  region: us-east-1
+  environment:
+    ORDERS_TABLE: ${self:service}-${sls:stage}-OrdersTable
+  role: arn:aws:iam::${aws:accountId}:role/LabRole
+
+functions:
+  createOrder:
+    handler: handler.create_order
+    events:
+      - http:
+          path: orders
+          method: post
+          cors: true
+
+resources:
+  Resources:
+    OrdersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.ORDERS_TABLE}
+        AttributeDefinitions:
+          - AttributeName: tenant_id
+            AttributeType: S
+          - AttributeName: pedido_id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tenant_id
+            KeyType: HASH
+          - AttributeName: pedido_id
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST

@@ -1,0 +1,23 @@
+# Serverless Framework
+.serverless
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+venv/
+env/
+.venv/
+
+# IDE y SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Documentos
+Proyecto-Final.pdf
+*.pdf
