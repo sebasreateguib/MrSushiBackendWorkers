@@ -1,59 +1,88 @@
-# Sistema de Gestión de Pedidos - Mr Sushi (Backend)
+# Sistema de Pedidos Online - Backend de Trabajadores (Mr Sushi)
 
-Este repositorio contiene la implementación del Backend Serverless para el Sistema de Gestión de Pedidos de comida rápida (Mr Sushi). 
-Cumple con los requisitos del Proyecto Final del curso Cloud Computing, utilizando una arquitectura Multi-tenancy, Serverless y orientada a eventos (EDA).
+Este repositorio contiene el **Backend Serverless** para la gestión operativa y el panel de trabajadores de Mr Sushi. Forma parte de una arquitectura basada en eventos (EDA) y utiliza Node.js con el Serverless Framework.
 
-## Arquitectura y Microservicios
+---
 
-El sistema está dividido en 3 microservicios independientes, orquestados mediante **Serverless Framework** y escritos en **Python 3.11**.
+## Arquitectura y Tecnologías
 
-### 1. Menu Service (`/backend/menu-service`)
-Microservicio encargado de gestionar el catálogo de productos de Mr Sushi.
-- **Endpoint:** `GET /menu`
-- **Flujo:** API Gateway -> Lambda -> DynamoDB (`MenuTable`)
-- **Propósito:** Alimentar la Aplicación Web para Clientes con los productos disponibles.
+- **Runtime:** Node.js 18.x
+- **Framework:** Serverless Framework (v3)
+- **Infraestructura AWS:** Lambda, API Gateway (HTTP API), DynamoDB
+- **Autenticación:** JWT (JSON Web Tokens)
+- **Multi-tenancy:** Particionado por `tenantId` (ej. `mrsushi`)
 
-### 2. Order Service (`/backend/order-service`)
-Microservicio encargado de la recepción inicial de pedidos.
-- **Endpoint:** `POST /orders`
-- **Flujo:** API Gateway -> Lambda -> DynamoDB (`OrdersTable`) -> EventBridge
-- **Propósito:** Recibe el pedido, lo almacena usando un diseño de base de datos Multi-tenant (Particionado por `sucursal_id`), y emite un evento asíncrono `OrderCreated` al bus de eventos de EventBridge.
+El backend de trabajadores comparte tablas de DynamoDB (órdenes) y el bus de eventos de EventBridge con el backend de clientes (`backend_cliente`), pero mantiene su propia tabla de trabajadores (`WorkersTable`) y maneja la autenticación de manera independiente.
 
-### 3. Fulfillment Service (`/backend/fulfillment-service`)
-Microservicio operativo encargado de orquestar el flujo de preparación y entrega (Workflow).
-- **Endpoint:** `POST /tasks/complete`
-- **Flujo:** EventBridge -> Step Functions -> Lambda -> DynamoDB (`FulfillmentTable`)
-- **Propósito:** Se dispara al escuchar el evento `OrderCreated`. Ejecuta una máquina de estados (Step Functions) que utiliza el patrón **"Wait for Callback with Task Token"** para pausar el flujo mientras los trabajadores humanos (cocinero, empacador, repartidor) hacen su trabajo, reanudando la ejecución automáticamente cuando reciben la confirmación.
+---
 
-## Servicios de AWS Utilizados
+## Endpoints (API de Trabajadores)
 
-| Servicio AWS | Propósito en el Proyecto |
-| :--- | :--- |
-| **AWS Lambda** | Ejecuta el código de negocio sin necesidad de aprovisionar servidores. |
-| **Amazon API Gateway** | Expone las rutas HTTP/REST para que las aplicaciones Frontend se comuniquen con las funciones Lambda. |
-| **Amazon DynamoDB** | Base de datos NoSQL donde se guardan el catálogo, los pedidos (multi-tenant) y los tokens de estado temporales. |
-| **Amazon EventBridge** | Permite una arquitectura orientada a eventos. Desacopla la creación de un pedido (Order Service) de su preparación (Fulfillment Service). |
-| **AWS Step Functions** | Orquesta el "Flujo de Trabajo" del pedido de principio a fin, gestionando tareas que pueden durar minutos u horas gracias a los *Task Tokens*. |
-| **AWS IAM** | Se utiliza explícitamente el `LabRole` (propio de cuentas de AWS Academy) para otorgar permisos a los servicios sin romper las políticas universitarias. |
+El backend expone las siguientes rutas a través de AWS API Gateway:
 
-## Instrucciones de Despliegue (AWS Academy / Learner Lab)
+### Autenticación
+| Endpoint | Método | Descripción |
+|---|---|---|
+| `/workers/auth/login` | `POST` | Autenticación exclusiva para trabajadores (admin, cocinero, empacador, repartidor). Devuelve un token JWT. |
 
-Dado que se utiliza una cuenta de estudiante, todos los `serverless.yml` están configurados para usar obligatoriamente el `LabRole`.
+### Panel de Pedidos
+Requieren un token JWT válido en el header `Authorization`.
 
-1. Instalar Serverless Framework de manera global (si no lo tienes):
-   ```bash
-   npm install -g serverless
-   ```
+| Endpoint | Método | Descripción |
+|---|---|---|
+| `/workers/orders` | `GET` | Lista todos los pedidos activos para el panel del trabajador. |
+| `/workers/orders/{orderId}` | `GET` | Obtiene el detalle completo de un pedido, incluyendo el progreso (steps) y los task tokens asociados de Step Functions. |
 
-2. Instalar dependencias locales del Fulfillment Service (requiere plugin de Step Functions):
-   ```bash
-   cd backend/fulfillment-service
-   npm init -y
-   npm install --save-dev serverless-step-functions
-   ```
+### Flujo de Trabajo (Workflow)
+Estos endpoints permiten al trabajador avanzar el estado de preparación y entrega de un pedido.
 
-3. Desplegar cada microservicio de manera independiente:
-   ```bash
-   cd backend/[nombre-del-microservicio]
-   serverless deploy
-   ```
+| Endpoint | Método | Descripción |
+|---|---|---|
+| `/workers/orders/{orderId}/steps/{step}/iniciar` | `POST` | El trabajador toma y asigna un paso específico del pedido (ej. empezar a cocinar). |
+| `/workers/orders/{orderId}/steps/{step}/completar` | `POST` | El trabajador completa un paso, lo que envía la señal a AWS Step Functions para avanzar el flujo del pedido. |
+
+---
+
+## Estructura de DynamoDB
+
+- **WorkersTable:** Almacena los perfiles y credenciales de los trabajadores. 
+  - `Partition Key (PK):` `tenantId`
+  - `Sort Key (SK):` `email`
+- **OrdersTable:** (Compartida) Almacena el estado y detalle de los pedidos.
+
+---
+
+## Configuración y Despliegue
+
+### 1. Variables de Entorno
+Copia el archivo `.env.example` a `.env` y configura el secreto JWT. Este secreto debe coincidir con el utilizado en `backend_cliente` para que los tokens sean compatibles.
+```bash
+cp backend/.env.example backend/.env
+```
+
+### 2. Instalación de Dependencias
+```bash
+cd backend
+npm install
+```
+
+### 3. Despliegue
+Antes de desplegar, asegúrate de:
+1. Reemplazar `TU_ACCOUNT_ID` en `backend/serverless.yml` con tu ID de cuenta AWS (si usas el LabRole).
+2. Haber desplegado primero el `backend_cliente` (ya que este servicio asume que las tablas y el bus de eventos compartidos ya existen).
+
+Despliegue a AWS:
+```bash
+npx sls deploy
+```
+
+*(Opcional) Puedes desplegar a un stage específico:*
+```bash
+npx sls deploy --stage dev
+```
+
+### 4. Creación del Primer Trabajador
+Una vez desplegado, puedes crear un trabajador de prueba usando el script proporcionado:
+```bash
+node scripts/seedWorker.js
+```

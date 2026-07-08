@@ -1,0 +1,100 @@
+# Backend de Trabajadores — Mr Sushi
+#
+# Servicio separado al backend de clientes (backend_cliente/).
+# Comparte las mismas tablas DynamoDB y el mismo EventBus,
+# pero tiene su propia tabla de trabajadores y su propio JWT.
+#
+# ANTES DE DEPLOY:
+#   1. Reemplaza TU_ACCOUNT_ID con tu número de cuenta AWS
+#   2. Asegúrate de que el backend_cliente ya fue desplegado (las tablas deben existir)
+#   3. Crea un trabajador inicial con: node scripts/seedWorker.js
+
+service: mrsushi-workers
+
+frameworkVersion: '3'
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  memorySize: 512
+  timeout: 29
+  region: us-east-1
+  stage: ${opt:stage, 'dev'}
+  iam:
+    role: arn:aws:iam::TU_ACCOUNT_ID:role/LabRole
+
+  environment:
+    STAGE: ${sls:stage}
+    TENANT_ID: mrsushi
+
+    # Tablas compartidas con el backend_cliente (deben existir ya)
+    ORDERS_TABLE: ${sls:stage}-mrsushi-orders
+    EVENT_BUS_NAME: ${sls:stage}-mrsushi-pedidos-bus
+
+    # Tabla exclusiva de trabajadores
+    WORKERS_TABLE: ${sls:stage}-mrsushi-workers
+
+    # Mismo secret que el backend_cliente para que los tokens sean compatibles
+    JWT_SECRET: ${env:JWT_SECRET, 'cambia-este-secreto-en-produccion'}
+
+  httpApi:
+    cors: true
+
+functions:
+
+  # ─── Auth de trabajadores ──────────────────────────────────────────────────
+  loginWorker:
+    handler: src/handlers/auth/login.handler
+    description: Login exclusivo para trabajadores (cocinero, empacador, repartidor)
+    events:
+      - httpApi: 'POST /workers/auth/login'
+
+  # ─── Panel de pedidos (solo trabajadores autenticados) ────────────────────
+  listOrders:
+    handler: src/handlers/orders/listOrders.handler
+    description: Lista todos los pedidos activos para el dashboard del trabajador
+    events:
+      - httpApi: 'GET /workers/orders'
+
+  getOrder:
+    handler: src/handlers/orders/getOrder.handler
+    description: Detalle completo de un pedido (con steps y taskTokens)
+    events:
+      - httpApi: 'GET /workers/orders/{orderId}'
+
+  # ─── Avance del flujo de trabajo ──────────────────────────────────────────
+  iniciarPaso:
+    handler: src/handlers/workflow/iniciarPaso.handler
+    description: El trabajador toma un paso (cocina/empaque/entrega)
+    events:
+      - httpApi: 'POST /workers/orders/{orderId}/steps/{step}/iniciar'
+
+  completarPaso:
+    handler: src/handlers/workflow/completarPaso.handler
+    description: El trabajador completa un paso y avanza el Step Functions
+    events:
+      - httpApi: 'POST /workers/orders/{orderId}/steps/{step}/completar'
+
+resources:
+  Resources:
+
+    WorkersTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:provider.environment.WORKERS_TABLE}
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: tenantId
+            AttributeType: S
+          - AttributeName: email
+            AttributeType: S
+        KeySchema:
+          - AttributeName: tenantId
+            KeyType: HASH
+          - AttributeName: email
+            KeyType: RANGE
+
+  Outputs:
+    WorkersApiUrl:
+      Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+      Description: URL base del API de trabajadores
