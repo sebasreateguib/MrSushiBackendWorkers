@@ -17,7 +17,3 @@ env/
 .vscode/
 .DS_Store
 Thumbs.db
-
-# Documentos
-Proyecto-Final.pdf
-*.pdf

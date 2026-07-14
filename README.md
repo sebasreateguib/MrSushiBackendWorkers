@@ -88,3 +88,14 @@ Puedes encontrar información técnica más detallada leyendo los archivos `READ
 - [Frontend Trabajadores README](./frontend_trabajador/README.md)
 - [Backend Cliente / Core README](./backend_cliente/backend/README.md)
 - Documento de especificación general: [Proyecto-Final.pdf](./Proyecto-Final.pdf)
+
+---
+
+## 👥 Equipo de Desarrollo
+
+| Nombre |
+| :--- |
+| Joaquin Justo |
+| Sebastian Reategui |
+| Juan Marcelo Ferreyra |
+| Sebastian Cangalaya |
